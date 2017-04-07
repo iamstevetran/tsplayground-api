@@ -9,6 +9,8 @@ import * as bodyParser from 'body-parser';
 import * as cors from 'cors';
 import index from './routes/index';
 import * as ejs from 'ejs';
+import * as jwt from 'express-jwt';
+import * as privateConfig from './environments/private.config';
 
 const app: express.Express = express();
 
@@ -21,13 +23,21 @@ app.set('view engine','html');
 //uncomment after placing your favicon in /public
 //app.use(favicon(path.join(__dirname,'public','favicon.ico')));
 app.use(cors());
+
+const authCheck = jwt({
+  secret: privateConfig.configs.auth0.secret,
+  audience: privateConfig.configs.auth0.clientId
+});
+
 app.use(logger('dev'));
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({extended: false}));
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname,'public')));
 
-app.use('/',index);
+app.use('/', authCheck);
+
+app.use('/', index)
 
 //catch 404 and forward to error handler
 app.use((req,res,next) => {

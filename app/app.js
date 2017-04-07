@@ -8,16 +8,23 @@ const bodyParser = require("body-parser");
 const cors = require("cors");
 const index_1 = require("./routes/index");
 const ejs = require("ejs");
+const jwt = require("express-jwt");
+const privateConfig = require("./environments/private.config");
 const app = express();
 app.set('views', path.join(__dirname, 'views'));
 app.engine('.html', ejs.renderFile);
 app.set('view engine', 'html');
 app.use(cors());
+const authCheck = jwt({
+    secret: privateConfig.configs.auth0.secret,
+    audience: privateConfig.configs.auth0.clientId
+});
 app.use(logger('dev'));
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, 'public')));
+app.use('/', authCheck);
 app.use('/', index_1.default);
 app.use((req, res, next) => {
     var err = new Error('Not Found');
