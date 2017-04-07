@@ -14,4 +14,4 @@ This is API repo for [tsplayground](https://github.com/tsplayground/tsplayground
 - Now API live at `http://localhost:3000`.
 
 ### Get UI to work
-- Check the docs [here](https://github.com/tsplayground/tsplayground-ui/blob/master/README.md);
+- Check the docs [here](https://github.com/tsplayground/tsplayground-ui/blob/master/README.md).
