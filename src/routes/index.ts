@@ -2,98 +2,123 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as express from 'express';
-import * as uuid from 'node-uuid'; 
+import * as uuid from 'node-uuid';
 import * as rimraf from 'rimraf';
-import { exec } from 'child_process';
+import { exec, execSync } from 'child_process';
 
 const router = express.Router();
 const rootPath = path.join(__dirname, '../');
-
+const maxBuffer = 1024 * 500;
 
 /* GET home page. */
-router.get('/', (req,res,next) => {
-  res.render('index', {title: 'Express'});
+router.get('/', (req, res, next) => {
+	res.render('index', { title: 'Express' });
 
 });
 
-router.get('/:tsver/:code', (req,res,next) => {
-  let tsVersion = req.params.tsver;
-  const code =  new Buffer(req.params.code, 'base64').toString('utf8');
-  const sandboxDir = path.join(rootPath, 'ts-sandboxes');
-  if (!fs.existsSync(sandboxDir)){
-    fs.mkdirSync(sandboxDir);
+router.get('/:tsver/:code', (req, res, next) => {
+	let tsVersion = req.params.tsver;
+	const code = new Buffer(req.params.code, 'base64').toString('utf8');
+	const sandboxDir = path.join(rootPath, 'ts-sandboxes');
+	if (!fs.existsSync(sandboxDir)) {
+		fs.mkdirSync(sandboxDir);
 	}
 
-	exec('npm view typescript@'.concat(tsVersion), (error, stdout, stderr) => {
+	exec('npm view typescript@'.concat(tsVersion), { maxBuffer: maxBuffer }, (error, stdout, stderr) => {
 		let data = {};
-		if (!stdout || error || stderr) {
-			res.json(data);
-			return;
-		}
+		try {
 
-		const npmInfo = stdout.replace(/[ \t]*[a-z]+\@(\d*\.){1,}\d/g, '<<split>>')
-			.replace(/\.\.\. \d+ more items /g, '')
-			.replace(/(\n|\r\n)/g, '')
-			.split('<<split>>')
-			.filter(item => item);
-		if (!npmInfo.length) {
-			res.json(data);
-			return;
-		}
+			if (!stdout || error || stderr) {
+				console.error(error, stderr);
+				res.json(data);
+				return;
+			}
 
-		data = new Function("return " + npmInfo[npmInfo.length - 1])();
+			const npmInfo = stdout.replace(/[ \t]*[a-z]+\@(\d+\.){1,}\d+/g, '<<split>>')
+				.replace(/\.\.\. \d+ more items /g, '')
+				.replace(/(\n|\r\n)/g, '')
+				.split('<<split>>')
+				.filter(item => item);
 
-		tsVersion = Object.keys(data["time"]).filter(version => (new RegExp('^' + tsVersion.replace('.', '\\.') + '((?!dev).)*$')).test(version))[0];
+			if (!npmInfo.length) {
+				res.json(data);
+				return;
+			}
 
-		const tsDir = path.join(sandboxDir, tsVersion);
-		const tsConfigTemplate = path.join(rootPath, 'templates/tsconfig.tmpl.json');
+			data = new Function("return " + npmInfo[npmInfo.length - 1])();
 
-  	const tsDirUuid = uuid.v4();
-  	const tsUuid = uuid.v4();
-  	const srcDir = path.join(tsDir, 'src');
-  	const inputDir = path.join(srcDir, tsDirUuid);
-		if (!fs.existsSync(tsDir)){
-	    fs.mkdirSync(tsDir);
-	    // Generate tsconfig for the first time
-	    if (fs.existsSync(tsConfigTemplate)) {
-	    	let tsconfig = fs.readFileSync(tsConfigTemplate, {encoding: 'utf-8'});
+			tsVersion = Object.keys(data["time"]).filter(version => (new RegExp('^' + tsVersion.replace('.', '\\.') + '((?!dev|insider).)*$')).test(version))[0];
+			console.info('ts version: ' + tsVersion);
+			const tsDir = path.join(sandboxDir, tsVersion);
+			const tsConfigTemplate = path.join(rootPath, 'templates/tsconfig.tmpl.json');
 
-	    	fs.writeFileSync(path.join(tsDir, 'tsconfig.json'), tsconfig, {encoding: 'utf-8'});
-	    }
-		}
+			const tsDirUuid = (req['user'] && req['user'].sub) ? req['user'].sub.replace(/[^\.\-a-zA-Z0-9]/g, '.') : uuid.v4();
+			const tsUuid = req.params.code;
+			const srcDir = path.join(tsDir, 'src');
+			const inputDir = path.join(srcDir, tsDirUuid);
+			const tsFile = path.join(inputDir, tsUuid + '.ts');
+			const jsFile = path.join(tsDir, 'dist', tsDirUuid, tsUuid + '.js')
 
-		if (!fs.existsSync(srcDir)) {
-			fs.mkdirSync(srcDir);
-		}
+			const reponseCompiledCode = () => {
+				data = {
+					compiled: fs.readFileSync(jsFile, { encoding: 'utf-8' })
+				};
 
-		fs.mkdirSync(inputDir);
-		fs.writeFile(path.join(inputDir, tsUuid + '.ts'), code, {encoding: 'utf-8'});
+				res.json(data);
+			}
 
-		exec('npm init --yes', {cwd: tsDir},  (error, stdout, stderr) => {
-			exec('npm install --save typescript@' + tsVersion, {cwd: tsDir},  (error, stdout, stderr) => {
-				console.log('installed typescript');
-				exec(path.join(tsDir, 'node_modules','.bin', 'tsc'), {cwd: tsDir}, (error, stdout, stderr) => {
-					console.log('tsc ran');
+			if (fs.existsSync(jsFile)) {
+				reponseCompiledCode();
+				return;
+			}
 
-					rimraf(inputDir, () => {console.log('removed')});
-					
-					if (error || stderr) {
-						res.json(data);
-						console.log('error');
-						console.error(error);
-						console.error(stderr);
-						return;
-					}
+			if (!fs.existsSync(tsDir)) {
+				fs.mkdirSync(tsDir);
+				// Generate tsconfig for the first time
+				if (fs.existsSync(tsConfigTemplate)) {
+					let tsconfig = fs.readFileSync(tsConfigTemplate, { encoding: 'utf-8' });
 
-					data = {
-						compiled: fs.readFileSync(path.join(tsDir, 'dist', tsDirUuid, tsUuid + '.js'), {encoding: 'utf-8'})
-					}
+					fs.writeFileSync(path.join(tsDir, 'tsconfig.json'), tsconfig, { encoding: 'utf-8' });
+					execSync('npm init --yes', { cwd: tsDir });
+					execSync('npm install --save typescript@' + tsVersion, { cwd: tsDir });
+					console.info('installed typescript');
+				}
+			}
 
+			if (!fs.existsSync(srcDir)) {
+				fs.mkdirSync(srcDir);
+			}
+
+			if (!fs.existsSync(inputDir)) {
+				fs.mkdirSync(inputDir);
+			}
+
+			if (!fs.existsSync(tsFile)) {
+				fs.writeFile(tsFile, code, { encoding: 'utf-8' });
+			}
+
+			exec(path.join(tsDir, 'node_modules', '.bin', 'tsc'), { cwd: tsDir }, (error, stdout, stderr) => {
+				console.info('tsc ran');
+
+				rimraf(inputDir, () => { console.info('removed src') });
+
+				if (error || stderr) {
 					res.json(data);
-				});
+					console.info('error');
+					console.error(error);
+					console.error(stderr);
+					return;
+				}
+
+				reponseCompiledCode();
 			});
-		});
-	})
+
+		} catch (e) {
+			console.error(e);
+			res.json(data);
+			return;
+		}
+	});
 });
 
 export default router;
