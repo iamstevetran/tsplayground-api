@@ -38,3 +38,5 @@ jspm_packages
 app/environments/
 src/environments/private.config.ts
 app/ts-sandboxes/
+app/**/*.js
+app/**/*.js.map
