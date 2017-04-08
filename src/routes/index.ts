@@ -5,6 +5,7 @@ import * as express from 'express';
 import * as uuid from 'node-uuid';
 import * as rimraf from 'rimraf';
 import { exec, execSync } from 'child_process';
+import * as sha1 from 'sha1';
 
 const router = express.Router();
 const rootPath = path.join(__dirname, '../');
@@ -53,7 +54,7 @@ router.get('/:tsver/:code', (req, res, next) => {
 			const tsConfigTemplate = path.join(rootPath, 'templates/tsconfig.tmpl.json');
 
 			const tsDirUuid = (req['user'] && req['user'].sub) ? req['user'].sub.replace(/[^\.\-a-zA-Z0-9]/g, '.') : uuid.v4();
-			const tsUuid = req.params.code;
+			const tsUuid = sha1(req.params.code);
 			const srcDir = path.join(tsDir, 'src');
 			const inputDir = path.join(srcDir, tsDirUuid);
 			const tsFile = path.join(inputDir, tsUuid + '.ts');
@@ -94,7 +95,7 @@ router.get('/:tsver/:code', (req, res, next) => {
 			}
 
 			if (!fs.existsSync(tsFile)) {
-				fs.writeFile(tsFile, code, { encoding: 'utf-8' });
+				fs.writeFileSync(tsFile, code, { encoding: 'utf-8' });
 			}
 
 			exec(path.join(tsDir, 'node_modules', '.bin', 'tsc'), { cwd: tsDir }, (error, stdout, stderr) => {
